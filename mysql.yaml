@@ -1,0 +1,103 @@
+###########################mysql StatefulSet################################
+#create pv
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bluebell-mysql5.7-pv
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  nfs:
+    path: /data/volumes/v2/bluebell-mysql5.7
+    server: 192.168.0.80
+
+---
+#create pvc
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bluebell-mysql-pvc
+  namespace: dev
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+  storageClassName: nfs
+
+---
+#create secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bluebell-mysql-secret
+  namespace: dev
+data:
+  username: cm9vdAo=  #root echo "root" |base64,产生环境不可以用root
+  password: YWJjQDA5MTIyMAo= # echo "abc@091220" |base64
+
+---
+#create service
+apiVersion: v1
+kind: Service
+metadata:
+  name: bluebell-mysql-svc
+spec:
+  selector:
+    app: bluebell-mysql
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: dev
+spec:
+  serviceName: mysql
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: gdsz.harbor.com/experimental_images/mysql:5.7
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: abc@091220
+              #valueFrom:
+              #  secretKeyRef:
+              #    name: bluebell-mysql-secret
+              #    key: password
+          volumeMounts:
+            - name: bluebell-mysql-data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: bluebell-mysql-data
+          persistentVolumeClaim:
+            claimName: bluebell-mysql-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-svc
+  namespace: dev
+spec:
+  selector:
+    app: mysql
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306

@@ -1,0 +1,27 @@
+# yaml 配置
+version: "3.7"
+services:
+  redis13607:
+    image: "redis:latest"
+    ports:
+      - "16379:6379"
+    command: "--requirepass  'abc@0912'"
+  mysql13306:
+    image: "mysql:latest"
+    ports:
+      - "13306:3306"
+    command: "--default-authentication-plugin=mysql_native_password --init-file /data/application/init.sql"
+    environment:
+      MYSQL_ROOT_PASSWORD: "abc@198920"
+      MYSQL_DATABASE: "bubble"
+      MYSQL_PASSWORD: "abc@198920"
+    volumes:
+      - ./init.sql:/data/application/init.sql
+  bluebell:
+    build: .
+    command: sh -c "./wait-for.sh mysql13306:3306 redis16379:6379 -- ./bluebell ./conf/config.ini"
+    depends_on:
+      - mysql13306
+      - redis13607
+    ports:
+      - "19000:9000"

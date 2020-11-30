@@ -1,0 +1,411 @@
+###############
+首先你有一个k8s集群(1个master,2个node或三个node)
+kubectl get node
+NAME        STATUS   ROLES    AGE    VERSION
+k8s-node1   Ready    <none>   102d   v1.16.0
+k8s-node2   Ready    <none>   102d   v1.16.0
+k8s-node3   Ready    <none>   102d   v1.16.0
+###############
+###########################create namespace################################
+#create namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+
+---
+###########################mysql StatefulSet################################
+#nfs搭建:https://blog.csdn.net/arvin357797333/article/details/71211370
+#可以使用nfs自动供给:https://www.cnblogs.com/Smbands/p/11059843.html
+#create pv
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bluebell-mysql5.7-pv
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  nfs:
+    path: /data/volumes/v2/bluebell-mysql5.7
+    server: 192.168.0.80
+
+---
+#create pvc
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bluebell-mysql-pvc
+  namespace: dev
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+  storageClassName: nfs
+
+---
+#create secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bluebell-mysql-secret
+  namespace: dev
+data:
+  username: cm9vdAo= #root echo "root" |base64,产生环境不可以用root
+  password: YWJjQDA5MTIyMAo= # echo "abc@091220" |base64
+
+---
+#create service
+apiVersion: v1
+kind: Service
+metadata:
+  name: bluebell-mysql-svc
+spec:
+  selector:
+    app: bluebell-mysql
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: dev
+spec:
+  serviceName: mysql
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: gdsz.harbor.com/experimental_images/mysql:5.7
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: abc@091220
+              #valueFrom:
+              #  secretKeyRef:
+              #    name: bluebell-mysql-secret
+              #    key: password
+          volumeMounts:
+            - name: bluebell-mysql-data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: bluebell-mysql-data
+          persistentVolumeClaim:
+            claimName: bluebell-mysql-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-svc
+  namespace: dev
+spec:
+  selector:
+    app: mysql
+  ports:
+    - protocol: TCP
+      port: 3306
+      targetPort: 3306
+
+
+#创建命令
+kubectl apply -f mysql.yaml
+persistentvolume/bluebell-mysql5.7-pv unchanged
+persistentvolumeclaim/bluebell-mysql-pvc unchanged
+secret/bluebell-mysql-secret unchanged
+service/bluebell-mysql-svc unchanged
+statefulset.apps/mysql configured
+service/mysql-svc created
+
+#导入sql语句
+
+#CREATE USER 'bluebell'@'localhost' IDENTIFIED BY 'bluebell@2020';
+# Grant all privileges on bluebell.* to 'bluebell'@'localhost';
+DROP DATABASE  IF EXISTS  `bluebell`;
+CREATE DATABASE `bluebell` DEFAULT CHARACTER SET utf8mb4;
+
+use `bluebell`;
+DROP TABLE IF EXISTS  `user`;
+CREATE TABLE `user`(
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `user_id` bigint(20) NOT NULL,
+  `username` VARCHAR(64) COLLATE utf8mb4_general_ci NOT NULL,
+  `password` VARCHAR(64) COLLATE utf8mb4_general_ci NOT NULL,
+  `email` VARCHAR(64) COLLATE utf8mb4_general_ci,
+  `gender` tinyint(64) NOT NULL DEFAULT '0',
+  `create_time` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  `udpate_time` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE current_timestamp ,
+  PRIMARY KEY(`id`),
+  UNIQUE  key idx_username (`username`) USING BTREE,
+  UNIQUE KEY idx_user_id(`user_id`) USING BTREE
+) engine=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+#创建社区
+DROP TABLE IF EXISTS  `community`;
+CREATE TABLE `community`(
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `community_id` int(10) unsigned NOT NULL,
+    `community_name` VARCHAR(128) COLLATE utf8mb4_general_ci NOT NULL,
+    `introduction` VARCHAR(256) COLLATE utf8mb4_general_ci NOT NULL,
+    `create_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `update_time` TIMESTAMP NOT NULL DEFAULT  CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_community_id`(`community_id`),
+    UNIQUE KEY `idx_community_name`(`community_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+INSERT INTO `community` (community_id,community_name,introduction) VALUES(1,"GO","Golang");
+INSERT INTO `community` (community_id,community_name,introduction) VALUES(2,"MySQL","Database");
+INSERT INTO `community` (community_id,community_name,introduction) VALUES(3,"Java","Java dev");
+INSERT INTO `community` (community_id,community_name,introduction) VALUES(4,"Code","code dev");
+
+DROP TABLE IF EXISTS `post`;
+CREATE TABLE `post`(
+    `id` bigint(20) NOT NULL AUTO_INCREMENT,
+    `post_id` bigint(20) NOT NULL COMMENT '帖子ID',
+    `title` VARCHAR(128) NOT NULL COLLATE utf8mb4_general_ci COMMENT '标题',
+    `content` varchar(8192)  NOT NULL COLLATE utf8mb4_general_ci comment '内容',
+    `author_id` bigint(20) NOT NULL COMMENT '作者的用户ID',
+    `community_id` bigint(20) NOT NULL COMMENT '社区id',
+    `status` tinyint(4) NOT NULL DEFAULT '1' COMMENT '帖子状态',
+    `create_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` TIMESTAMP NOT NULL DEFAULT  CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP  COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_post_id`(`post_id`),
+    KEY `idx_author_id`(`author_id`),
+    KEY `idx_community_id`(`community_id`)
+) engine=InnoDB charset=utf8mb4 Collate=utf8mb4_general_ci;
+
+
+
+---
+###########################redis StatefulSet#################################
+#创建pvc
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bluebell-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  nfs:
+    path: /data/volumes/v2/blueblell-redis
+    server: 192.168.0.80
+---
+#create pvc
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bluebell-redis-pvc
+  namespace: dev
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: nfs
+
+
+---
+#redis:
+#gdsz.harbor.com/experimental_images/redis:latest
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: dev
+spec:
+  serviceName: redis
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: gdsz.harbor.com/experimental_images/redis:latest
+          args: ["--requirepass","abc@0912"]   #设置redis连接密码
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: bluebell-redis-pvc
+
+---
+#create reids svc 对外提供服务
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-svc
+  namespace: dev
+spec:
+  selector:
+    app: redis
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379
+
+
+#创建命令
+kubectl apply -f redis.yaml
+persistentvolume/bluebell-pv created
+persistentvolumeclaim/bluebell-redis-pvc created
+statefulset.apps/redis created
+service/redis-svc created
+
+
+---
+###########################bluebell Deployment#################################
+#create ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bluebell-configmap
+  namespace: dev
+data:
+  config.yaml: |
+     app.name: "bluebell"
+     app.mode: "dev"
+     app.port: 9000
+     app.version: "1.0.0"
+     app.star_time: "2020-11-17"
+     app.machine_id: 1
+
+     auth.jwt_expire: 8760
+
+     log.filename: "./bluebell.log"
+     log.level: "info"
+     log.max_size: 1000
+     log.max_backups: 7
+     log.max_age: 30
+
+     mysql.driver_name: "mysql"
+     mysql.host: "mysql-svc" #如果不在一个名称空间，就要加上名称空间名,比如mysql-svc.dev
+     mysql.port: 3306
+     mysql.username: "root"
+     mysql.password: "abc@091220"
+     mysql.dbname: "bluebell"
+     mysql.max_conns: 100
+     mysql.max_idle_conns: 10
+
+     redis.host: "redis-svc"
+     redis.port: 6379
+     redis.password: "abc@0912"
+     redis.db: 0
+     redis.pool_size: 100
+
+---
+#create Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bluebell
+  namespace: dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bluebell
+  template:
+    metadata:
+      labels:
+        app: bluebell
+    spec:
+      containers:
+        - name: bluebell
+          image: gdsz.harbor.com/experimental_images/bluebell:v1
+          ports:
+            - containerPort: 9000
+          resources:
+            requests:
+              cpu: 1000m #cpu的一核= 1000m
+              memory: 500Mi
+            limits: #使用资源最大上限
+              cpu: 1000m
+              memory: 500Mi
+          volumeMounts:
+            - name: bluebell-conf-data
+              mountPath: /app/conf
+          readinessProbe: #准备就绪探测，如果可以加入service负载均衡
+            httpGet:
+              scheme: HTTP
+              path: /
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: bluebell-conf-data
+          configMap:
+            name: bluebell-configmap
+
+---
+#创建bluebell-svc服务对对象外提供提供服务
+apiVersion: v1
+kind: Service
+metadata:
+  name: bluebell-svc
+  namespace: dev
+spec:
+  selector:
+    app:  bluebell
+  type: NodePort
+  ports:
+    - protocol: TCP
+      port: 9000 #集群上监控的端口
+      targetPort: 9000 #Pod上监控的端口
+      nodePort: 30900 #节点上监控的监控,这个端口不建议自己设置，默认随机分配
+
+
+#创建命令:
+#kubectl apply -f bluebell.yaml
+
+#查询应用
+get pods -n dev
+NAME                        READY   STATUS    RESTARTS   AGE
+bluebell-5868cb9446-sfvr9   1/1     Running   12         40m
+bluebell-5868cb9446-thlsb   1/1     Running   0          66s
+mysql-0                     1/1     Running   0          5m3s
+redis-0                     1/1     Running   0          53m
+
+
+kubectl get svc -n dev
+NAME           TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)          AGE
+bluebell-svc   NodePort    10.0.0.66    <none>        9000:30900/TCP   44m
+mysql-svc      ClusterIP   10.0.0.135   <none>        3306/TCP         6m18s
+redis-svc      ClusterIP   10.0.0.115   <none>        6379/TCP         55m
+
+#集群结构：
+kubectl get nodes -o wide
+NAME        STATUS   ROLES    AGE    VERSION   INTERNAL-IP    EXTERNAL-IP   OS-IMAGE                KERNEL-VERSION                CONTAINER-RUNTIME
+k8s-node1   Ready    <none>   102d   v1.16.0   192.168.0.90   <none>        CentOS Linux 7 (Core)   3.10.0-1127.10.1.el7.x86_64   docker://18.9.6
+k8s-node2   Ready    <none>   102d   v1.16.0   192.168.0.91   <none>        CentOS Linux 7 (Core)   3.10.0-1127.10.1.el7.x86_64   docker://18.9.6
+k8s-node3   Ready    <none>   102d   v1.16.0   192.168.0.92   <none>        CentOS Linux 7 (Core)   3.10.0-1127.10.1.el7.x86_64   docker://18.9.6
+
+在浏览器中输入:
+http://192.168.0.90:30900/
+http://192.168.0.91:30900/
+http://192.168.0.92:30900/

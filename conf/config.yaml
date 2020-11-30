@@ -1,0 +1,31 @@
+app:
+  name: "bluebell"
+  mode: "dev"
+  port: 9000
+  version: "1.0.0"
+  star_time: "2020-11-17"
+  machine_id: 1
+
+auth:
+  jwt_expire: 8760
+log:
+  filename: "./bluebell.log"
+  level: "info"
+  max_size: 1000
+  max_backups: 7
+  max_age: 30
+mysql:
+  driver_name: "mysql"
+  host: "127.0.0.1"
+  port: 3306
+  username: "root"
+  password: "abc@198920"
+  dbname: "bluebell"
+  max_conns: 100
+  max_idle_conns: 10
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: "abc@0912"
+  db: 0
+  pool_size: 100

@@ -1,0 +1,76 @@
+###########################redis StatefulSet#################################
+#创建pvc
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bluebell-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  nfs:
+    path: /data/volumes/v2/blueblell-redis
+    server: 192.168.0.80
+---
+#create pvc
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bluebell-redis-pvc
+  namespace: dev
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: nfs
+
+
+---
+#redis:
+#gdsz.harbor.com/experimental_images/redis:latest
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: dev
+spec:
+  serviceName: redis
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: gdsz.harbor.com/experimental_images/redis:latest
+          args: ["--requirepass","abc@0912"]   #设置redis连接密码
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: bluebell-redis-pvc
+
+---
+#create reids svc 对外提供服务
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-svc
+  namespace: dev
+spec:
+  selector:
+    app: redis
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379

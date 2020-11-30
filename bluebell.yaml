@@ -1,0 +1,99 @@
+###########################bluebell Deployment#################################
+#create ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bluebell-configmap
+  namespace: dev
+data:
+  config.yaml: |
+     app.name: "bluebell"
+     app.mode: "dev"
+     app.port: 9000
+     app.version: "1.0.0"
+     app.star_time: "2020-11-17"
+     app.machine_id: 1
+
+     auth.jwt_expire: 8760
+
+     log.filename: "./bluebell.log"
+     log.level: "info"
+     log.max_size: 1000
+     log.max_backups: 7
+     log.max_age: 30
+
+     mysql.driver_name: "mysql"
+     mysql.host: "mysql-svc" #如果不在一个名称空间，就要加上名称空间名,比如mysql-svc.dev
+     mysql.port: 3306
+     mysql.username: "root"
+     mysql.password: "abc@091220"
+     mysql.dbname: "bluebell"
+     mysql.max_conns: 100
+     mysql.max_idle_conns: 10
+
+     redis.host: "redis-svc"
+     redis.port: 6379
+     redis.password: "abc@0912"
+     redis.db: 0
+     redis.pool_size: 100
+
+---
+#create Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bluebell
+  namespace: dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bluebell
+  template:
+    metadata:
+      labels:
+        app: bluebell
+    spec:
+      containers:
+        - name: bluebell
+          image: gdsz.harbor.com/experimental_images/bluebell:v1
+          ports:
+            - containerPort: 9000
+          resources:
+            requests:
+              cpu: 1000m #cpu的一核= 1000m
+              memory: 500Mi
+            limits: #使用资源最大上限
+              cpu: 1000m
+              memory: 500Mi
+          volumeMounts:
+            - name: bluebell-conf-data
+              mountPath: /app/conf
+          readinessProbe: #准备就绪探测，如果可以加入service负载均衡
+            httpGet:
+              scheme: HTTP
+              path: /
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: bluebell-conf-data
+          configMap:
+            name: bluebell-configmap
+
+---
+#创建bluebell-svc服务对对象外提供提供服务
+apiVersion: v1
+kind: Service
+metadata:
+  name: bluebell-svc
+  namespace: dev
+spec:
+  selector:
+    app:  bluebell
+  type: NodePort
+  ports:
+    - protocol: TCP
+      port: 9000 #集群上监控的端口
+      targetPort: 9000 #Pod上监控的端口
+      nodePort: 30900 #节点上监控的监控,这个端口不建议自己设置，默认随机分配
